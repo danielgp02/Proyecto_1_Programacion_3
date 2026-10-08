@@ -1,7 +1,6 @@
 package Proyecto01.vista;
 
-import Proyecto01.modelo.RegistroUsuarios;
-import Proyecto01.modelo.Usuario;
+import Proyecto01.servicio.IControlAcceso;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -15,21 +14,17 @@ import java.awt.*;
  *  Simula la entrada de un socio al gimnasio: el usuario escribe su numero de
  *  socio y el sistema decide si le permite entrar o no.
  *
- *  Logica de verificacion (verificarAcceso):
- *    1. Campo vacio            -> mensaje inicial "Ingrese su número de socio".
- *    2. No es un numero        -> "Número de socio inválido"      (naranja)
- *    3. No esta registrado     -> "Acceso Denegado: socio no registrado" (naranja)
- *    4. Registrado y al dia    -> "Acceso Permitido"              (verde)
- *    5. Registrado y moroso    -> "Acceso Denegado por Morosidad" (rojo)
+ *  Logica de verificacion:
+ *    Delega en ControlAcceso, que revisa la fecha de vencimiento de la membresía
+ *    (cobro -> vencimiento -> acceso). No usa la casilla manual de pago al día.
  *
  *   La verificacion es EN TIEMPO REAL: cada tecla que se escribe en la caja
  *   de texto dispara la consulta (DocumentListener), sin necesidad de pulsar
  *   el boton Ingresar.
  *
  *  Datos:
- *    Consulta el SINGLETON RegistroUsuarios, el mismo registro compartido con
- *    PanelUsuarios. Por eso un socio dado de alta ahi ya puede
- *    intentar ingresar desde esta pantalla.
+ *    Usa IControlAcceso, inyectado por la ventana principal. El mismo gestor
+ *    de socios alimenta el mantenimiento y las membresías.
  */
 public class SistemaAcceso extends JPanel {
 
@@ -50,28 +45,27 @@ public class SistemaAcceso extends JPanel {
     // cambiando su texto y color segun el estado del socio.
     private JLabel lblResultado;
 
+    // Servicio que decide el acceso con la fecha de vencimiento de la membresía
+    private final IControlAcceso controlAcceso;
+
     /**
      * Constructor sin argumentos: crea el panel sin accion para el boton de
      * mantenimiento (llama al otro constructor pasandole null).
      * Con null, el boton "Inscripción de Usuarios" queda oculto.
      */
-    public SistemaAcceso() {
-        this(null);
+    public SistemaAcceso(IControlAcceso controlAcceso) {
+        this(controlAcceso, null);
     }
 
     /**
      * Constructor principal: construye toda la interfaz grafica del panel.
      *
-     * @param irAMantenimiento accion a ejecutar al pulsar "Inscripción de Usuarios"
-     *                         (por ejemplo, cambiar a la pestaña de mantenimiento
-     *                         en la ventana principal). Si es null, el boton se oculta.
-     *
-     * Estructura de la ventana (BorderLayout):
-     *   NORTH  -> titulo "Simulación de Acceso"
-     *   CENTER -> formulario: [Número de Socio] + [Estado del Pago]
-     *   SOUTH  -> botones: Limpiar / Ingresar / Inscripción de Usuarios
+     * @param controlAcceso servicio que verifica vencimiento y morosidad
+     * @param irAMantenimiento accion a ejecutar al pulsar "Inscripción de Usuarios".
+     *                         Si es null, el boton se oculta.
      */
-    public SistemaAcceso(Runnable irAMantenimiento) {
+    public SistemaAcceso(IControlAcceso controlAcceso, Runnable irAMantenimiento) {
+        this.controlAcceso = controlAcceso;
         setLayout(new BorderLayout());
 
         // Contenedor principal con BorderLayout (5 regiones) y 10px de separación
@@ -190,8 +184,9 @@ public class SistemaAcceso extends JPanel {
      *   1) Campo vacio               -> restablece el mensaje inicial.
      *   2) No es un numero entero    -> "Número de socio inválido" (naranja).
      *   3) No esta en el registro    -> "Acceso Denegado: socio no registrado" (naranja).
-     *   4) Esta y pago al dia        -> "Acceso Permitido" (verde).
-     *   5) Esta pero pago vencido    -> "Acceso Denegado por Morosidad" (rojo).
+     *   4) Membresía al día          -> "Acceso Permitido" (verde).
+     *   5) Membresía vencida        -> "Acceso Denegado por Morosidad" (rojo).
+     *   6) Sin membresía            -> mensaje del servicio (naranja).
      */
     private void verificarAcceso() {
 
@@ -217,24 +212,15 @@ public class SistemaAcceso extends JPanel {
             return;
         }
 
-        // Busca al socio en el registro compartido con el formulario de mantenimiento
-        Usuario usuario = RegistroUsuarios.getInstancia().buscarPorNumeroUsuario(numeroUsuario);
-
-        // 3) El socio no está registrado en el sistema
-        if (usuario == null) {
-            lblResultado.setText("Acceso Denegado: socio no registrado");
-            lblResultado.setForeground(new Color(255, 140, 0)); // naranja
-            return;
-        }
-
-        // 4) Pago al día: se permite la entrada
-        if (usuario.isPagoAlDia()) {
-            lblResultado.setText("Acceso Permitido");
-            lblResultado.setForeground(new Color(0, 150, 0)); // verde
+        // El servicio revisa la membresía y su fecha de vencimiento.
+        String resultado = controlAcceso.verificarAcceso(numeroUsuario);
+        lblResultado.setText(resultado);
+        if ("Acceso Permitido".equals(resultado)) {
+            lblResultado.setForeground(new Color(0, 150, 0));
+        } else if ("Acceso Denegado por Morosidad".equals(resultado)) {
+            lblResultado.setForeground(new Color(200, 16, 46));
         } else {
-            // 5) Pago vencido: se deniega la entrada por morosidad
-            lblResultado.setText("Acceso Denegado por Morosidad");
-            lblResultado.setForeground(new Color(200, 16, 46)); // rojo
+            lblResultado.setForeground(new Color(255, 140, 0));
         }
     }
 

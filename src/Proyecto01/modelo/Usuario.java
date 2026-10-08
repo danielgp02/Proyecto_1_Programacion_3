@@ -100,4 +100,31 @@ public class Usuario extends Persona {
                 ", condicionesMedicas='" + condicionesMedicas + '\'' +
                 '}';
     }
+
+    /**
+     * Dos socios son el mismo si comparten número de socio.
+     * Sin esto, editar creaba otro objeto y buscarMembresiaPorUsuario devolvía null.
+     *
+     * @param o otro objeto
+     * @return true si es un Usuario con el mismo número de socio
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof Usuario)) {
+            return false;
+        }
+        Usuario otro = (Usuario) o;
+        return numeroUsuario == otro.numeroUsuario;
+    }
+
+    /**
+     * @return código hash basado en el número de socio, coherente con equals
+     */
+    @Override
+    public int hashCode() {
+        return Integer.hashCode(numeroUsuario);
+    }
 }

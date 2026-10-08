@@ -3,12 +3,10 @@ package Proyecto01.vista;
 import Proyecto01.modelo.Membresia;
 import Proyecto01.modelo.Pago;
 import Proyecto01.modelo.Plan;
-import Proyecto01.modelo.PlanAnual;
-import Proyecto01.modelo.PlanMensual;
-import Proyecto01.modelo.PlanVIP;
-import Proyecto01.modelo.RegistroUsuarios;
 import Proyecto01.modelo.Usuario;
 import Proyecto01.servicio.IGestorMembresias;
+import Proyecto01.servicio.IGestorPlanes;
+import Proyecto01.servicio.IGestorUsuarios;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -24,14 +22,16 @@ import java.time.format.DateTimeFormatter;
  *   3. Ver la tabla de membresías activas (socio, plan, vencimiento y estado).
  *   4. Ver el historial de pagos de la membresía seleccionada en la tabla.
  *
- * Los socios se toman del SINGLETON RegistroUsuarios (el mismo que usa
- * PanelUsuarios y SistemaAcceso), mientras que las membresías se gestionan a
- * través del servicio IGestorMembresias inyectado en el constructor.
+ * Los socios salen de IGestorUsuarios y los planes de IGestorPlanes.
+ * Las membresías se gestionan con IGestorMembresias. Al cobrar se actualiza
+ * el estado de pago del socio con la fecha de vencimiento.
  */
 public class PanelMembresias extends JPanel {
 
     // Servicio que administra las membresías y los pagos
     private final IGestorMembresias gestorMembresias;
+    private final IGestorUsuarios gestorUsuarios;
+    private final IGestorPlanes gestorPlanes;
 
     // Combo con los socios registrados en el sistema
     private final JComboBox<Usuario> comboSocios = new JComboBox<>();
@@ -57,9 +57,14 @@ public class PanelMembresias extends JPanel {
      * Constructor: construye la interfaz gráfica del panel.
      *
      * @param gestorMembresias servicio que administra las membresías y pagos.
+     * @param gestorUsuarios servicio de socios, compartido con las otras pestañas
+     * @param gestorPlanes catálogo de planes (Mensual, Anual, VIP)
      */
-    public PanelMembresias(IGestorMembresias gestorMembresias) {
+    public PanelMembresias(IGestorMembresias gestorMembresias, IGestorUsuarios gestorUsuarios,
+                           IGestorPlanes gestorPlanes) {
         this.gestorMembresias = gestorMembresias;
+        this.gestorUsuarios = gestorUsuarios;
+        this.gestorPlanes = gestorPlanes;
 
         setLayout(new BorderLayout(10, 10));
         setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
@@ -86,11 +91,12 @@ public class PanelMembresias extends JPanel {
         add(panelCentral, BorderLayout.CENTER);
 
         // Carga inicial de los planes disponibles
-        comboPlanes.addItem(new PlanMensual());
-        comboPlanes.addItem(new PlanAnual());
-        comboPlanes.addItem(new PlanVIP());
+        for (Plan plan : gestorPlanes.listarPlanes()) {
+            comboPlanes.addItem(plan);
+        }
 
-        RegistroUsuarios.getInstancia().agregarListener(this::actualizarSocios);
+        gestorUsuarios.agregarListener(this::actualizarSocios);
+        actualizarSocios();
 
         // Al seleccionar una membresía se muestran sus pagos
         tablaMembresias.getSelectionModel().addListSelectionListener(e -> {
@@ -193,7 +199,7 @@ public class PanelMembresias extends JPanel {
      */
     public void actualizarSocios() {
         comboSocios.removeAllItems();
-        for (Usuario usuario : RegistroUsuarios.getInstancia().getUsuarios()) {
+        for (Usuario usuario : gestorUsuarios.listarUsuarios()) {
             comboSocios.addItem(usuario);
         }
         recargarMembresias();
@@ -221,6 +227,7 @@ public class PanelMembresias extends JPanel {
 
         // El gestor crea la membresía (o actualiza la existente) y cobra el plan
         Membresia membresia = gestorMembresias.asignarPlanYCobrar(usuario, plan);
+        gestorUsuarios.sincronizarEstadoDePago(usuario);
 
         etiquetaResultado.setText("Se asignó el plan " + plan.getNombre() + " a "
                 + usuario.getNombreCompleto() + ". Próximo vencimiento: "
@@ -245,6 +252,7 @@ public class PanelMembresias extends JPanel {
 
         try {
             gestorMembresias.registrarPago(usuario);
+            gestorUsuarios.sincronizarEstadoDePago(usuario);
             Membresia membresia = gestorMembresias.buscarMembresiaPorUsuario(usuario);
 
             etiquetaResultado.setText("Pago registrado para " + usuario.getNombreCompleto()
@@ -288,7 +296,7 @@ public class PanelMembresias extends JPanel {
         }
 
         int numeroSocio = (Integer) modeloTablaMembresias.getValueAt(fila, 0);
-        Usuario usuario = RegistroUsuarios.getInstancia().buscarPorNumeroUsuario(numeroSocio);
+        Usuario usuario = gestorUsuarios.buscarUsuarioPorNumero(numeroSocio);
         if (usuario == null) {
             return;
         }

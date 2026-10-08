@@ -1,13 +1,20 @@
 package Proyecto01.vista;
 
+import Proyecto01.modelo.PlanAnual;
+import Proyecto01.servicio.ControlAcceso;
 import Proyecto01.servicio.GestorMembresias;
+import Proyecto01.servicio.GestorPlanes;
+import Proyecto01.servicio.GestorUsuarios;
+import Proyecto01.servicio.IControlAcceso;
 import Proyecto01.servicio.IGestorMembresias;
+import Proyecto01.servicio.IGestorPlanes;
+import Proyecto01.servicio.IGestorUsuarios;
 
 import javax.swing.*;
 
 /**
- * Ventana principal de la aplicación: contiene las pestañas de
- * Sistema de Acceso, Mantenimiento de Socios y Gestión de Membresías.
+ * Ventana principal. Arma los servicios una sola vez y se los pasa a las pestañas,
+ * para que acceso, socios y membresías compartan los mismos datos.
  */
 public class VentanaPrincipal extends JFrame {
 
@@ -17,19 +24,24 @@ public class VentanaPrincipal extends JFrame {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
-        JTabbedPane pestanas = new JTabbedPane();
-
-        PanelUsuarios panelMantenimiento = new PanelUsuarios();
-
-        // El botón "Inscripción de Usuarios" del SistemaAcceso cambia a la
-        // pestaña de Mantenimiento en lugar de abrir una ventana nueva
-        SistemaAcceso panelAcceso = new SistemaAcceso(() -> pestanas.setSelectedIndex(1));
-
-        // Panel de membresías: asigna planes, registra pagos y consulta
-        // membresías e historial de pagos.
         IGestorMembresias gestorMembresias = new GestorMembresias();
-        PanelMembresias panelMembresias = new PanelMembresias(gestorMembresias);
-        panelMembresias.actualizarSocios();
+        IGestorUsuarios gestorUsuarios = new GestorUsuarios(gestorMembresias);
+        IGestorPlanes gestorPlanes = new GestorPlanes();
+        IControlAcceso controlAcceso = new ControlAcceso(gestorUsuarios, gestorMembresias);
+
+        // Cobro de ejemplo: Maria queda al día (Mensual) y Lucia al día (Anual).
+        // Carlos y Jorge no tienen membresía, así que el acceso los rechaza.
+        gestorMembresias.asignarPlanYCobrar(
+                gestorUsuarios.buscarUsuarioPorNumero(101), gestorPlanes.buscarPlanPorNombre("Mensual"));
+        gestorMembresias.asignarPlanYCobrar(
+                gestorUsuarios.buscarUsuarioPorNumero(103), new PlanAnual());
+        gestorUsuarios.sincronizarEstadoDePago(gestorUsuarios.buscarUsuarioPorNumero(101));
+        gestorUsuarios.sincronizarEstadoDePago(gestorUsuarios.buscarUsuarioPorNumero(103));
+
+        JTabbedPane pestanas = new JTabbedPane();
+        PanelUsuarios panelMantenimiento = new PanelUsuarios(gestorUsuarios);
+        SistemaAcceso panelAcceso = new SistemaAcceso(controlAcceso, () -> pestanas.setSelectedIndex(1));
+        PanelMembresias panelMembresias = new PanelMembresias(gestorMembresias, gestorUsuarios, gestorPlanes);
 
         pestanas.addTab("Control de Acceso", panelAcceso);
         pestanas.addTab("Mantenimiento de Socios", panelMantenimiento);

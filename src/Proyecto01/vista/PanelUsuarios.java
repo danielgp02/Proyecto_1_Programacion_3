@@ -1,7 +1,7 @@
 package Proyecto01.vista;
 
-import Proyecto01.modelo.RegistroUsuarios;
 import Proyecto01.modelo.Usuario;
+import Proyecto01.servicio.IGestorUsuarios;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -26,9 +26,9 @@ import java.awt.*;
  *    - Abajo  : botones Limpiar / Guardar / Editar / Eliminar.
  *
  *  Datos:
- *    Trabaja sobre el SINGLETON RegistroUsuarios, por lo que comparte la misma
- *    lista de socios con SistemaAcceso: si aqui registras a un socio, en
- *    SistemaAcceso ya puede intentar ingresar al gimnasio.
+ *    Trabaja sobre IGestorUsuarios. El almacenamiento está en el servicio
+ *    (Repositorio genérico), no en el modelo. El estado "pago al día" no se
+ *    edita aquí: lo actualiza el cobro de la membresía.
  */
 public class PanelUsuarios extends JPanel {
 
@@ -44,8 +44,10 @@ public class PanelUsuarios extends JPanel {
     protected JTextField txtContactoEmergencia; // Contacto de emergencia (opcional)
     protected JTextField txtCondicionesMedicas; // Condiciones medicas (opcional)
 
-    // Casilla que indica si el socio tiene su pago al dia (mensualidad al dia)
+    // Casilla de solo lectura: refleja si la membresía está al día
     private JCheckBox chkPagoAlDia;
+
+    private final IGestorUsuarios gestorUsuarios;
 
     // ================================ BOTONES ==================================
     private JButton btnGuardar;   // Registra un socio nuevo o guarda los cambios al editar
@@ -71,7 +73,8 @@ public class PanelUsuarios extends JPanel {
      * Al final conecta los eventos (configurarListeners) y carga los socios
      * que ya existen en el registro (recargarTabla).
      */
-    public PanelUsuarios() {
+    public PanelUsuarios(IGestorUsuarios gestorUsuarios) {
+        this.gestorUsuarios = gestorUsuarios;
         setLayout(new BorderLayout());
 
         // Contenedor principal con BorderLayout y margen interno
@@ -130,10 +133,11 @@ public class PanelUsuarios extends JPanel {
         txtIdUsuario.setColumns(8);     // Ancho acorde al tamaño de un ID
         panelFormulario.add(envolverCampoCorto(txtIdUsuario));
 
-        // [Fila 7] Pago al dia: casilla marcada por defecto
+        // [Fila 7] Pago al día: lo define el cobro de la membresía, no esta pantalla
         panelFormulario.add(new JLabel("Pago al día:"));
-        chkPagoAlDia = new JCheckBox();
-        chkPagoAlDia.setSelected(true);
+        chkPagoAlDia = new JCheckBox("Se actualiza al cobrar la membresía");
+        chkPagoAlDia.setEnabled(false);
+        chkPagoAlDia.setSelected(false);
         panelFormulario.add(chkPagoAlDia);
 
         // [Fila 8] Contacto de emergencia (campo opcional)
@@ -186,8 +190,7 @@ public class PanelUsuarios extends JPanel {
 
         // Conecta los eventos de los botones y de la tabla
         configurarListeners();
-
-        // Muestra los socios que ya estan registrados
+        gestorUsuarios.agregarListener(this::recargarTabla);
         recargarTabla();
     }
 
@@ -226,7 +229,7 @@ public class PanelUsuarios extends JPanel {
     }
 
     /**
-     * Guarda al socio en el registro (RegistroUsuarios).
+     * Guarda al socio en el servicio de usuarios.
      * Flujo del metodo:
      *   1. Lee los valores de los campos del formulario.
      *   2. Valida que los campos personales obligatorios no esten vacios.
@@ -283,33 +286,21 @@ public class PanelUsuarios extends JPanel {
             return;
         }
 
-        // Obtiene la (unica) instancia del registro de socios (Singleton)
-        RegistroUsuarios registro = RegistroUsuarios.getInstancia();
-
-        // 5) Al ingresar un socio nuevo, evita duplicar el numero de socio.
-        //    OJO: si se esta EDITANDO, el numero ya existia, por eso no se chequea.
-        if (numeroSocioEnEdicion == null && registro.existeNumeroUsuario(numeroSocioInt)) {
-            JOptionPane.showMessageDialog(this,
-                    "Ya existe un socio registrado con el número " + numeroSocioInt + ".",
-                    "Número de socio duplicado", JOptionPane.WARNING_MESSAGE);
+        try {
+            if (numeroSocioEnEdicion == null) {
+                gestorUsuarios.registrarUsuario(nombre, edadInt, correo, telefonoInt,
+                        numeroSocioInt, idUsuarioInt, contacto, condiciones);
+            } else {
+                // Actualiza el mismo objeto: la membresía no pierde al socio.
+                gestorUsuarios.actualizarUsuario(numeroSocioEnEdicion, nombre, edadInt, correo,
+                        telefonoInt, numeroSocioInt, idUsuarioInt, contacto, condiciones);
+            }
+        } catch (IllegalArgumentException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(),
+                    "No se pudo guardar", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        // 6) Construye el socio con toda la informacion del formulario
-        Usuario socio = new Usuario(nombre, edadInt, correo, telefonoInt,
-                numeroSocioInt, idUsuarioInt, chkPagoAlDia.isSelected(),
-                contacto, condiciones);
-
-        // Si NO se esta editando -> registrar() agrega un socio nuevo.
-        // Si SI se esta editando -> actualizar() reemplaza al socio cuyo numero
-        //                            original es numeroSocioEnEdicion.
-        if (numeroSocioEnEdicion == null) {
-            registro.registrar(socio);
-        } else {
-            registro.actualizar(numeroSocioEnEdicion, socio);
-        }
-
-        // 7) Limpia el formulario, recarga la tabla y confirma la operacion
         limpiarFormulario();
         recargarTabla();
         JOptionPane.showMessageDialog(this,
@@ -356,7 +347,7 @@ public class PanelUsuarios extends JPanel {
         txtIdUsuario.setText(String.valueOf(idUsuario));
 
         // Toma el resto de datos desde el registro para completar el formulario
-        Usuario socio = RegistroUsuarios.getInstancia().buscarPorNumeroUsuario(numeroSocio);
+        Usuario socio = gestorUsuarios.buscarUsuarioPorNumero(numeroSocio);
         if (socio == null) {
             return; // Por seguridad: socio no encontrado
         }
@@ -397,7 +388,10 @@ public class PanelUsuarios extends JPanel {
 
         // Solo borra si el usuario pulso "Si"
         if (opcion == JOptionPane.YES_OPTION) {
-            RegistroUsuarios.getInstancia().eliminarPorNumeroUsuario(numeroSocio);
+            Usuario socio = gestorUsuarios.buscarUsuarioPorNumero(numeroSocio);
+            if (socio != null) {
+                gestorUsuarios.eliminarUsuario(socio);
+            }
             limpiarFormulario();
             recargarTabla();
         }
@@ -411,7 +405,7 @@ public class PanelUsuarios extends JPanel {
      */
     private void recargarTabla() {
         modeloTabla.setRowCount(0); // Limpia las filas anteriores
-        for (Usuario u : RegistroUsuarios.getInstancia().getUsuarios()) {
+        for (Usuario u : gestorUsuarios.listarUsuarios()) {
             // Agrega una fila por cada socio registrado
             modeloTabla.addRow(new Object[]{
                     u.getNumeroUsuario(),
@@ -438,7 +432,7 @@ public class PanelUsuarios extends JPanel {
         txtIdUsuario.setText("");
         txtContactoEmergencia.setText("");
         txtCondicionesMedicas.setText("");
-        chkPagoAlDia.setSelected(true);  // Vuelve al estado inicial (pago al dia)
+        chkPagoAlDia.setSelected(false);
         tablaSocios.clearSelection();    // Deselecciona cualquier fila
         btnEditar.setEnabled(false);
         btnEliminar.setEnabled(false);

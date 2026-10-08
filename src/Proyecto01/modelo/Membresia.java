@@ -16,7 +16,6 @@ public class Membresia {
     public Membresia(Usuario usuario, Plan plan) {
         this.usuario = usuario;
         this.plan = plan;
-        this.fechaVencimiento = fechaVencimiento;
         this.historialPagos = new ArrayList<>();
         registrarPago();
     }
