@@ -92,3 +92,5 @@ SHOW DATABASES;          -- debe aparecer gimnasio_db
 USE gimnasio_db;
 SHOW TABLES;             -- debe listar usuarios, planes, membresias, pagos
 SELECT * FROM usuarios;  -- deben salir María, Carlos, Lucía, Jorge
+
+SELECT numero_socio, nombre_completo FROM usuarios;  -- deben estar 101 y 103

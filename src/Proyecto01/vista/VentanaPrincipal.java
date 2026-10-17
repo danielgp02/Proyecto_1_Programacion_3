@@ -1,6 +1,7 @@
 package Proyecto01.vista;
 
 import Proyecto01.modelo.PlanAnual;
+import Proyecto01.persistencia.UsuarioDaoJDBC;
 import Proyecto01.servicio.ControlAcceso;
 import Proyecto01.servicio.GestorMembresias;
 import Proyecto01.servicio.GestorPlanes;
@@ -25,7 +26,7 @@ public class VentanaPrincipal extends JFrame {
         setLocationRelativeTo(null);
 
         IGestorMembresias gestorMembresias = new GestorMembresias();
-        IGestorUsuarios gestorUsuarios = new GestorUsuarios(gestorMembresias);
+        IGestorUsuarios gestorUsuarios = new GestorUsuarios(gestorMembresias, new UsuarioDaoJDBC());
         IGestorPlanes gestorPlanes = new GestorPlanes();
         IControlAcceso controlAcceso = new ControlAcceso(gestorUsuarios, gestorMembresias);
 

@@ -2,54 +2,67 @@ package Proyecto01.servicio;
 
 import Proyecto01.modelo.Membresia;
 import Proyecto01.modelo.Usuario;
+import Proyecto01.persistencia.IUsuarioDao;
 
+import java.sql.SQLException;
+import java.sql.SQLIntegrityConstraintViolationException;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Servicio de socios. El almacenamiento vive aquí, reutilizando Repositorio<Usuario>,
- * y no en un singleton del modelo.
+ * Servicio de socios. La persistencia vive en MySQL detrás de IUsuarioDao:
+ * este gestor aplica reglas de negocio y traduce los errores de base de datos
+ * a mensajes comprensibles para la interfaz.
  */
 public class GestorUsuarios implements IGestorUsuarios {
 
     private final IGestorMembresias gestorMembresias;
-    private final Repositorio<Usuario> usuarios;
+    private final IUsuarioDao dao;
     private final List<Runnable> listeners;
 
     /**
-     * Crea el gestor y carga socios de prueba para la simulación de acceso.
+     * Crea el gestor con su DAO de persistencia.
      *
      * @param gestorMembresias servicio de membresías, usado al eliminar y al sincronizar el pago
+     * @param dao acceso a datos de los socios (JDBC contra MySQL)
      */
-    public GestorUsuarios(IGestorMembresias gestorMembresias) {
+    public GestorUsuarios(IGestorMembresias gestorMembresias, IUsuarioDao dao) {
         this.gestorMembresias = gestorMembresias;
-        this.usuarios = new Repositorio<>();
+        this.dao = dao;
         this.listeners = new ArrayList<>();
-        precargarSociosDePrueba();
     }
 
     @Override
     public Usuario registrarUsuario(String nombreCompleto, int edad, String correoElectronico, int telefono,
-                                    int numeroUsuario, int idUsuario,
-                                    String contactoEmergencia, String condicionesMedicas) {
+                                    int numeroUsuario, int idUsuario, String contactoEmergencia,
+                                    String condicionesMedicas) {
         if (nombreCompleto == null || nombreCompleto.trim().isEmpty()) {
             throw new IllegalArgumentException("El nombre del socio es obligatorio.");
         }
         if (buscarUsuarioPorNumero(numeroUsuario) != null) {
             throw new IllegalArgumentException("Ya existe un socio registrado con el número " + numeroUsuario + ".");
         }
-        // Sin membresía cobrada el socio no puede estar al día.
+        // El idUsuario lo genera la base de datos (AUTO_INCREMENT), no el formulario.
         Usuario usuario = new Usuario(nombreCompleto, edad, correoElectronico, telefono,
-                numeroUsuario, idUsuario, false, contactoEmergencia, condicionesMedicas);
-        usuarios.agregar(usuario);
+                numeroUsuario, 0, false, contactoEmergencia, condicionesMedicas);
+
+        try {
+            usuario = dao.crear(usuario);
+        } catch (SQLIntegrityConstraintViolationException e) {
+            // La BD también protege el UNIQUE de numero_socio
+            throw new IllegalArgumentException("Ya existe un socio registrado con el número " + numeroUsuario + ".");
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudo registrar el socio en la base de datos: "
+                    + e.getMessage(), e);
+        }
         notificarCambios();
         return usuario;
     }
 
     @Override
     public void actualizarUsuario(int numeroOriginal, String nombreCompleto, int edad, String correoElectronico,
-                                  int telefono, int numeroUsuario, int idUsuario,
-                                  String contactoEmergencia, String condicionesMedicas) {
+                                  int telefono, int numeroUsuario, int idUsuario, String contactoEmergencia,
+                                  String condicionesMedicas) {
         Usuario existente = buscarUsuarioPorNumero(numeroOriginal);
         if (existente == null) {
             throw new IllegalArgumentException("No existe el socio número " + numeroOriginal + ".");
@@ -57,33 +70,61 @@ public class GestorUsuarios implements IGestorUsuarios {
         if (numeroUsuario != numeroOriginal && buscarUsuarioPorNumero(numeroUsuario) != null) {
             throw new IllegalArgumentException("Ya existe un socio registrado con el número " + numeroUsuario + ".");
         }
-        // Se muta la misma instancia: la membresía conserva la referencia al socio.
+        // Se muta la misma instancia (la membresía conserva la referencia al socio).
+        // OJO: idUsuario NO se toca: es la llave primaria de la tabla usuarios.
         existente.setNombreCompleto(nombreCompleto);
         existente.setEdad(edad);
         existente.setCorreoElectronico(correoElectronico);
         existente.setTelefono(telefono);
         existente.setNumeroSocio(numeroUsuario);
-        existente.setIdUsuario(idUsuario);
         existente.setContactoEmergencia(contactoEmergencia);
         existente.setCondicionesMedicas(condicionesMedicas);
+
+        try {
+            if (!dao.actualizar(existente)) {
+                throw new IllegalStateException("El socio número " + numeroUsuario
+                        + " ya no existe en la base de datos.");
+            }
+        } catch (SQLIntegrityConstraintViolationException e) {
+            throw new IllegalArgumentException("Ya existe otro socio con el número " + numeroUsuario + ".");
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudo actualizar el socio: " + e.getMessage(), e);
+        }
         sincronizarEstadoDePago(existente);
     }
 
     @Override
     public void eliminarUsuario(Usuario usuario) {
         gestorMembresias.eliminarMembresiaDeUsuario(usuario);
-        usuarios.eliminar(usuario);
+        try {
+            if (!dao.eliminar(usuario.getNumeroUsuario())) {
+                throw new IllegalStateException("El socio número " + usuario.getNumeroUsuario()
+                        + " ya no existe en la base de datos.");
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudo eliminar al socio: " + e.getMessage(), e);
+        }
         notificarCambios();
     }
 
     @Override
     public List<Usuario> listarUsuarios() {
-        return new ArrayList<>(usuarios.obtenerTodos());
+        try {
+            return dao.listarTodos();
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudo leer la lista de socios de la base de datos: "
+                    + e.getMessage(), e);
+        }
     }
 
     @Override
     public Usuario buscarUsuarioPorNumero(int numeroUsuario) {
-        return usuarios.buscar(u -> u.getNumeroUsuario() == numeroUsuario);
+        try {
+            return dao.buscarPorNumero(numeroUsuario);
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudo buscar el socio número " + numeroUsuario
+                    + " en la base de datos: " + e.getMessage(), e);
+        }
     }
 
     @Override
@@ -92,7 +133,14 @@ public class GestorUsuarios implements IGestorUsuarios {
             return;
         }
         Membresia membresia = gestorMembresias.buscarMembresiaPorUsuario(usuario);
-        usuario.setPagoAlDia(membresia != null && membresia.estaAlDia());
+        boolean alDia = membresia != null && membresia.estaAlDia();
+        usuario.setPagoAlDia(alDia);
+        try {
+            dao.actualizarEstadoDePago(usuario.getNumeroUsuario(), alDia);
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudo actualizar el estado de pago del socio: "
+                    + e.getMessage(), e);
+        }
         notificarCambios();
     }
 
@@ -107,20 +155,5 @@ public class GestorUsuarios implements IGestorUsuarios {
         for (Runnable listener : listeners) {
             listener.run();
         }
-    }
-
-    /**
-     * Carga socios de ejemplo. El estado de pago real lo define la membresía
-     * que se les asigna al arrancar la ventana.
-     */
-    private void precargarSociosDePrueba() {
-        usuarios.agregar(new Usuario("Maria Gonzalez", 32, "maria.gonzalez@correo.com", 55510101, 101, 1, false,
-                "Juan Gonzalez / 88880001", "Ninguna"));
-        usuarios.agregar(new Usuario("Carlos Perez", 45, "carlos.perez@correo.com", 55520202, 102, 2, false,
-                "Ana Perez / 88880002", "Asma leve"));
-        usuarios.agregar(new Usuario("Lucia Fernandez", 28, "lucia.fernandez@correo.com", 55530303, 103, 3, false,
-                "Pedro Fernandez / 88880003", "Ninguna"));
-        usuarios.agregar(new Usuario("Jorge Ramirez", 51, "jorge.ramirez@correo.com", 55540404, 104, 4, false,
-                "Rosa Ramirez / 88880004", "Hipertensión"));
     }
 }
