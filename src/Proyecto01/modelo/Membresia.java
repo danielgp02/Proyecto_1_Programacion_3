@@ -8,6 +8,7 @@ import java.util.List;
 //Tiene información sobre el plan de membresía, la fecha de vencimiento y los pagos realizados
 public class Membresia {
 
+    private int idMembresia;
     private Usuario usuario;
     private Plan plan;
     private LocalDate fechaVencimiento;
@@ -17,10 +18,19 @@ public class Membresia {
         this.usuario = usuario;
         this.plan = plan;
         this.historialPagos = new ArrayList<>();
+        this.idMembresia = 0;
         registrarPago();
     }
 
     // Getters and setters
+    public int getIdMembresia() {
+        return idMembresia;
+    }
+
+    public void setIdMembresia(int idMembresia) {
+        this.idMembresia = idMembresia;
+    }
+
     public Usuario getUsuario() {
         return usuario;
     }

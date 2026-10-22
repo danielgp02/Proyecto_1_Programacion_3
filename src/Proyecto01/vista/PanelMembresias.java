@@ -12,6 +12,7 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 /**
  * Panel de gestión de membresías del gimnasio.
@@ -146,9 +147,13 @@ public class PanelMembresias extends JPanel {
         JButton botonRenovar = new JButton("Registrar pago de renovación");
         botonRenovar.addActionListener(e -> registrarPago());
 
+        JButton botonMorosos = new JButton("Ver socios morosos");
+        botonMorosos.addActionListener(e -> mostrarMorosos());
+
         JPanel panelBotones = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         panelBotones.add(botonRenovar);
         panelBotones.add(botonAsignar);
+        panelBotones.add(botonMorosos);
 
         panelSuperior.add(formulario, BorderLayout.CENTER);
         panelSuperior.add(panelBotones, BorderLayout.SOUTH);
@@ -312,5 +317,60 @@ public class PanelMembresias extends JPanel {
                     "₡" + pago.getMonto()
             });
         }
+    }
+
+    /**
+     * Muestra un dialogo con la lista de socios cuyas membresias estan vencidas
+     * (morosos). Consulta la base de datos a traves de IGestorMembresias.
+     */
+    private void mostrarMorosos() {
+        List<Membresia> vencidas;
+        try {
+            vencidas = gestorMembresias.listarMembresiasVencidas();
+        } catch (IllegalStateException ex) {
+            JOptionPane.showMessageDialog(this,
+                    ex.getMessage(),
+                    "Error al consultar morosos",
+                    JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        if (vencidas.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "No hay socios con membresia vencida.",
+                    "Socios morosos",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        String[] columnas = {"Nº Socio", "Nombre", "Plan", "Vencimiento", "Días vencido"};
+        DefaultTableModel modelo = new DefaultTableModel(columnas, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
+
+        java.time.LocalDate hoy = java.time.LocalDate.now();
+        for (Membresia m : vencidas) {
+            long diasVencido = java.time.temporal.ChronoUnit.DAYS.between(
+                    m.getFechaVencimiento(), hoy);
+            modelo.addRow(new Object[]{
+                    m.getUsuario().getNumeroUsuario(),
+                    m.getUsuario().getNombreCompleto(),
+                    m.getPlan().getNombre(),
+                    m.getFechaVencimiento().format(formato),
+                    diasVencido
+            });
+        }
+
+        JTable tablaMorosos = new JTable(modelo);
+        JScrollPane scroll = new JScrollPane(tablaMorosos);
+        scroll.setPreferredSize(new java.awt.Dimension(600, 300));
+
+        JOptionPane.showMessageDialog(this,
+                scroll,
+                "Socios con membresia vencida (" + vencidas.size() + ")",
+                JOptionPane.WARNING_MESSAGE);
     }
 }

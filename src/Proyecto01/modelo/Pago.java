@@ -18,6 +18,12 @@ public class Pago {
         return fecha;
     }
 
+    //Establece la fecha del pago (útil al cargar desde la base de datos)
+    //@param fecha fecha del pago
+    public void setFecha(LocalDate fecha){
+        this.fecha = fecha;
+    }
+
     //Obtiene el monto del pago y lo retorna
     public double getMonto(){
         return monto;

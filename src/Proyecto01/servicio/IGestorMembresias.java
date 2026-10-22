@@ -28,5 +28,9 @@ public interface IGestorMembresias {
     //Retorna una lista con las membresias
     List<Membresia> listarMembresias();
 
+    //Lista las membresias vencidas (fecha de vencimiento anterior a hoy)
+    //Retorna una lista con las membresias morosas
+    List<Membresia> listarMembresiasVencidas();
+
 
 }
