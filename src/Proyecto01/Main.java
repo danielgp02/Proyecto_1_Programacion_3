@@ -10,12 +10,6 @@ public class Main {
             VentanaPrincipal ventanaPrincipal = new VentanaPrincipal();
             ventanaPrincipal.setVisible(true);
         });
-
-
-
-
-
-
-
+        
     }
 }

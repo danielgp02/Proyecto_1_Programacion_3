@@ -25,7 +25,7 @@ public class PruebaConexion {
 
 
 
-        try (Connection conn = DriverManager.getConnection(url, "root", "root");
+        try (Connection conn = DriverManager.getConnection(url, "root", "rootroot");
              Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery("SELECT numero_socio, nombre_completo FROM usuarios")) {
 

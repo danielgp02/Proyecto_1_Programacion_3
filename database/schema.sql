@@ -9,7 +9,7 @@ USE gimnasio_db;
 -- TABLA: usuarios
 -- Mapea: Persona (nombre, edad, correo, telefono) + Usuario
 -- ============================================================
-CREATE TABLE usuarios (
+CREATE TABLE IF NOT EXISTS usuarios (
     id_usuario        INT AUTO_INCREMENT PRIMARY KEY,      -- PK real, se genera sola
     numero_socio      INT NOT NULL UNIQUE,                 -- el número que elige el socio (101, 102...)
     nombre_completo   VARCHAR(100) NOT NULL,
@@ -26,7 +26,7 @@ CREATE TABLE usuarios (
 -- TABLA: planes   (opcional pero recomendada)
 -- Mapea: PlanBase (nombre, precioBase, beneficios, duracionDias)
 -- ============================================================
-CREATE TABLE planes (
+CREATE TABLE IF NOT EXISTS planes (
     id_plan       INT AUTO_INCREMENT PRIMARY KEY,
     nombre        VARCHAR(50) NOT NULL UNIQUE,             -- 'Mensual', 'Anual', 'VIP'
     precio_base   DECIMAL(10,2) NOT NULL,
@@ -38,7 +38,7 @@ CREATE TABLE planes (
 -- TABLA: membresias   (FK a usuarios y planes)
 -- Mapea: Membresia (usuario, plan, fechaVencimiento)
 -- ============================================================
-CREATE TABLE membresias (
+CREATE TABLE IF NOT EXISTS membresias (
     id_membresia       INT AUTO_INCREMENT PRIMARY KEY,
     id_usuario         INT NOT NULL UNIQUE,                -- UNIQUE = 1 membresía por socio (nota 3)
     id_plan            INT NOT NULL,
@@ -54,7 +54,7 @@ CREATE TABLE membresias (
 -- TABLA: pagos   (FK a membresias)
 -- Mapea: Pago (fecha, monto) + el historialPagos de Membresia
 -- ============================================================
-CREATE TABLE pagos (
+CREATE TABLE IF NOT EXISTS pagos (
     id_pago       INT AUTO_INCREMENT PRIMARY KEY,
     id_membresia  INT NOT NULL,
     fecha_pago    DATE NOT NULL,
@@ -67,10 +67,14 @@ CREATE TABLE pagos (
 -- ============================================================
 -- Datos de prueba (los mismos del Proyecto 1)
 -- ============================================================
+-- Los precios coinciden con el cálculo de las clases Java:
+-- PlanMensual: 25000.0, 30 dias
+-- PlanAnual: 25000*12*(1-0.15) = 255000.0, 365 dias
+-- PlanVIP: 25000+15000 = 40000.0, 30 dias
 INSERT INTO planes (nombre, precio_base, beneficios, duracion_dias) VALUES
-    ('Mensual', 15000.00, 'Acceso en horario regular', 30),
-    ('Anual',  150000.00, 'Acceso en horario regular + 2 meses de regalo', 365),
-    ('VIP',    25000.00,  'Acceso 24/7, locker y clases especiales', 30);
+    ('Mensual', 25000.00, 'Acceso a sala de pesas y cardio', 30),
+    ('Anual',  255000.00, 'Acceso a sala de pesas, cardio y clases grupales', 365),
+    ('VIP',    40000.00,  'Acceso a clases especiales, casillero y entrenador personal', 30);
 
 INSERT INTO usuarios (numero_socio, nombre_completo, edad, correo_electronico, telefono, pago_al_dia)
 VALUES (101, 'María',  28, 'maria@email.com',  88881111, TRUE),
