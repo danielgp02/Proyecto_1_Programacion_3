@@ -19,6 +19,8 @@ public class GestorUsuarios implements IGestorUsuarios {
     private final IGestorMembresias gestorMembresias;
     private final IUsuarioDao dao;
     private final List<Runnable> listeners;
+    // Socios ya cargados: una sola instancia por socio, la misma que ve la membresía
+    private final Repositorio<Usuario> cache;
 
     /**
      * Crea el gestor con su DAO de persistencia.
@@ -30,6 +32,7 @@ public class GestorUsuarios implements IGestorUsuarios {
         this.gestorMembresias = gestorMembresias;
         this.dao = dao;
         this.listeners = new ArrayList<>();
+        this.cache = new Repositorio<>();
     }
 
     @Override
@@ -55,6 +58,7 @@ public class GestorUsuarios implements IGestorUsuarios {
             throw new IllegalStateException("No se pudo registrar el socio en la base de datos: "
                     + e.getMessage(), e);
         }
+        cache.agregar(usuario);
         notificarCambios();
         return usuario;
     }
@@ -80,6 +84,10 @@ public class GestorUsuarios implements IGestorUsuarios {
         existente.setContactoEmergencia(contactoEmergencia);
         existente.setCondicionesMedicas(condicionesMedicas);
 
+        // Sincronizar primero el estado de pago según la membresía, para que
+        // dao.actualizar guarde el valor correcto de pago_al_dia en la BD.
+        sincronizarEstadoDePago(existente);
+
         try {
             if (!dao.actualizar(existente)) {
                 throw new IllegalStateException("El socio número " + numeroUsuario
@@ -90,7 +98,6 @@ public class GestorUsuarios implements IGestorUsuarios {
         } catch (SQLException e) {
             throw new IllegalStateException("No se pudo actualizar el socio: " + e.getMessage(), e);
         }
-        sincronizarEstadoDePago(existente);
     }
 
     @Override
@@ -101,6 +108,7 @@ public class GestorUsuarios implements IGestorUsuarios {
                 throw new IllegalStateException("El socio número " + usuario.getNumeroUsuario()
                         + " ya no existe en la base de datos.");
             }
+            cache.eliminar(usuario);
         } catch (SQLException e) {
             throw new IllegalStateException("No se pudo eliminar al socio: " + e.getMessage(), e);
         }
@@ -110,7 +118,11 @@ public class GestorUsuarios implements IGestorUsuarios {
     @Override
     public List<Usuario> listarUsuarios() {
         try {
-            return dao.listarTodos();
+            List<Usuario> resultado = new ArrayList<>();
+            for (Usuario desdeBD : dao.listarTodos()) {
+                resultado.add(enCache(desdeBD));
+            }
+            return resultado;
         } catch (SQLException e) {
             throw new IllegalStateException("No se pudo leer la lista de socios de la base de datos: "
                     + e.getMessage(), e);
@@ -120,7 +132,12 @@ public class GestorUsuarios implements IGestorUsuarios {
     @Override
     public Usuario buscarUsuarioPorNumero(int numeroUsuario) {
         try {
-            return dao.buscarPorNumero(numeroUsuario);
+            Usuario cacheado = cache.buscar(u -> u.getNumeroUsuario() == numeroUsuario);
+            if (cacheado != null) {
+                return cacheado;
+            }
+            Usuario desdeBD = dao.buscarPorNumero(numeroUsuario);
+            return desdeBD == null ? null : enCache(desdeBD);
         } catch (SQLException e) {
             throw new IllegalStateException("No se pudo buscar el socio número " + numeroUsuario
                     + " en la base de datos: " + e.getMessage(), e);
@@ -142,6 +159,23 @@ public class GestorUsuarios implements IGestorUsuarios {
                     + e.getMessage(), e);
         }
         notificarCambios();
+    }
+
+    /**
+     * Devuelve la instancia guardada del socio o, si es la primera vez que se
+     * carga, la guarda en el repositorio genérico.
+     *
+     * @param desdeBD socio recién leído de la base de datos
+     * @return la instancia única del socio
+     */
+    private Usuario enCache(Usuario desdeBD) {
+        Usuario existente = cache.buscar(u -> u.getIdUsuario() == desdeBD.getIdUsuario());
+        if (existente != null) {
+            existente.setPagoAlDia(desdeBD.isPagoAlDia());
+            return existente;
+        }
+        cache.agregar(desdeBD);
+        return desdeBD;
     }
 
     @Override

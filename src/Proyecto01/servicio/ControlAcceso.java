@@ -29,11 +29,14 @@ public class ControlAcceso implements IControlAcceso {
         }
         Membresia membresia = gestorMembresias.buscarMembresiaPorUsuario(usuario);
         if (membresia == null) {
-            usuario.setPagoAlDia(false);
+            // No membresía: el socio no está al día. Persistir el estado en BD.
+            gestorUsuarios.sincronizarEstadoDePago(usuario);
             return "Acceso Denegado: el socio no tiene una membresía activa";
         }
         boolean alDia = membresia.estaAlDia();
-        usuario.setPagoAlDia(alDia);
+        // Sincronizar el estado de pago en la base de datos para que
+        // pago_al_dia quede acorde con la fecha de vencimiento real.
+        gestorUsuarios.sincronizarEstadoDePago(usuario);
         return alDia ? "Acceso Permitido" : "Acceso Denegado por Morosidad";
     }
 }
