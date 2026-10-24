@@ -80,6 +80,10 @@ public class GestorUsuarios implements IGestorUsuarios {
         existente.setContactoEmergencia(contactoEmergencia);
         existente.setCondicionesMedicas(condicionesMedicas);
 
+        // Sincronizar primero el estado de pago según la membresía, para que
+        // dao.actualizar guarde el valor correcto de pago_al_dia en la BD.
+        sincronizarEstadoDePago(existente);
+
         try {
             if (!dao.actualizar(existente)) {
                 throw new IllegalStateException("El socio número " + numeroUsuario
@@ -90,7 +94,6 @@ public class GestorUsuarios implements IGestorUsuarios {
         } catch (SQLException e) {
             throw new IllegalStateException("No se pudo actualizar el socio: " + e.getMessage(), e);
         }
-        sincronizarEstadoDePago(existente);
     }
 
     @Override
