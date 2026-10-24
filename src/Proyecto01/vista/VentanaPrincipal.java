@@ -1,6 +1,6 @@
 package Proyecto01.vista;
 
-import Proyecto01.modelo.PlanAnual;
+
 import Proyecto01.persistencia.UsuarioDaoJDBC;
 import Proyecto01.servicio.ControlAcceso;
 import Proyecto01.servicio.GestorMembresias;
@@ -69,7 +69,7 @@ public class VentanaPrincipal extends JFrame {
                         gestorPlanes.buscarPlanPorNombre("Mensual"));
                 gestorMembresias.asignarPlanYCobrar(
                         gestorUsuarios.buscarUsuarioPorNumero(103),
-                        new PlanAnual());
+                        gestorPlanes.buscarPlanPorNombre("Anual"));
                 gestorUsuarios.sincronizarEstadoDePago(
                         gestorUsuarios.buscarUsuarioPorNumero(101));
                 gestorUsuarios.sincronizarEstadoDePago(

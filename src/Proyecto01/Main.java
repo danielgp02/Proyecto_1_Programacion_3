@@ -11,11 +11,5 @@ public class Main {
             ventanaPrincipal.setVisible(true);
         });
 
-
-
-
-
-
-
     }
 }
