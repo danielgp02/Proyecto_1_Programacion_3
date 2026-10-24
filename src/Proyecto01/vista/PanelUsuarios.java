@@ -295,7 +295,7 @@ public class PanelUsuarios extends JPanel {
                 gestorUsuarios.actualizarUsuario(numeroSocioEnEdicion, nombre, edadInt, correo,
                         telefonoInt, numeroSocioInt, idUsuarioInt, contacto, condiciones);
             }
-        } catch (IllegalArgumentException ex) {
+        } catch (IllegalArgumentException | IllegalStateException ex) {
             JOptionPane.showMessageDialog(this, ex.getMessage(),
                     "No se pudo guardar", JOptionPane.WARNING_MESSAGE);
             return;
@@ -388,12 +388,17 @@ public class PanelUsuarios extends JPanel {
 
         // Solo borra si el usuario pulso "Si"
         if (opcion == JOptionPane.YES_OPTION) {
-            Usuario socio = gestorUsuarios.buscarUsuarioPorNumero(numeroSocio);
-            if (socio != null) {
-                gestorUsuarios.eliminarUsuario(socio);
+            try {
+                Usuario socio = gestorUsuarios.buscarUsuarioPorNumero(numeroSocio);
+                if (socio != null) {
+                    gestorUsuarios.eliminarUsuario(socio);
+                }
+                limpiarFormulario();
+                recargarTabla();
+            }catch (IllegalStateException ex) {
+                JOptionPane.showMessageDialog(this, ex.getMessage(),
+                        "Error de base de datos", JOptionPane.WARNING_MESSAGE);
             }
-            limpiarFormulario();
-            recargarTabla();
         }
     }
 
