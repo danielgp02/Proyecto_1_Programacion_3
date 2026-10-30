@@ -5,7 +5,6 @@ import Proyecto01.modelo.PlanAnual;
 import Proyecto01.modelo.PlanMensual;
 import Proyecto01.modelo.PlanVIP;
 import Proyecto01.persistencia.IPlanDao;
-import Proyecto01.persistencia.PlanDaoJDBC;
 
 import java.sql.SQLException;
 import java.util.List;
@@ -20,9 +19,11 @@ public class GestorPlanes implements IGestorPlanes {
 
     /**
      * Crea el gestor con su DAO de persistencia de planes.
+     *
+     * @param dao acceso a datos de los planes (JDBC contra MySQL)
      */
-    public GestorPlanes() {
-        this.dao = new PlanDaoJDBC();
+    public GestorPlanes(IPlanDao dao) {
+        this.dao = dao;
         inicializarPlanesPorDefecto();
     }
 

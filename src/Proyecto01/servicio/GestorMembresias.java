@@ -5,7 +5,6 @@ import Proyecto01.modelo.Pago;
 import Proyecto01.modelo.Plan;
 import Proyecto01.modelo.Usuario;
 import Proyecto01.persistencia.IMembresiaDao;
-import Proyecto01.persistencia.MembresiaDaoJDBC;
 
 import java.sql.SQLException;
 import java.time.LocalDate;
@@ -21,9 +20,11 @@ public class GestorMembresias implements IGestorMembresias {
 
     /**
      * Crea el servicio con su DAO de persistencia de membresías.
+     *
+     * @param dao acceso a datos de las membresías (JDBC contra MySQL)
      */
-    public GestorMembresias() {
-        this.dao = new MembresiaDaoJDBC();
+    public GestorMembresias(IMembresiaDao dao) {
+        this.dao = dao;
     }
 
     @Override
@@ -131,11 +132,22 @@ public class GestorMembresias implements IGestorMembresias {
      *
      * @return lista de membresías vencidas
      */
+    @Override
     public List<Membresia> listarMembresiasVencidas() {
         try {
             return dao.listarVencidas(LocalDate.now());
         } catch (SQLException e) {
             throw new IllegalStateException("No se pudo listar las membresías vencidas: "
+                    + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public List<Object[]> listarIngresosPorPlan() {
+        try {
+            return dao.ingresosPorPlan();
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudo calcular el reporte de ingresos: "
                     + e.getMessage(), e);
         }
     }

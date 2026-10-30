@@ -177,6 +177,31 @@ public class MembresiaDaoJDBC implements IMembresiaDao {
         }
     }
 
+    @Override
+    public List<Object[]> ingresosPorPlan() throws SQLException {
+        String sql = "SELECT p.nombre, COUNT(pg.id_pago) AS cantidad_pagos, "
+                + "COALESCE(SUM(pg.monto), 0) AS total "
+                + "FROM planes p "
+                + "LEFT JOIN membresias m ON m.id_plan = p.id_plan "
+                + "LEFT JOIN pagos pg ON pg.id_membresia = m.id_membresia "
+                + "GROUP BY p.id_plan, p.nombre "
+                + "ORDER BY total DESC, p.nombre";
+        List<Object[]> filas = new ArrayList<>();
+
+        try (Connection conn = conexion.conectar();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                filas.add(new Object[]{
+                        rs.getString("nombre"),
+                        rs.getLong("cantidad_pagos"),
+                        rs.getDouble("total")
+                });
+            }
+        }
+        return filas;
+    }
+
     private Membresia mapear(ResultSet rs) throws SQLException {
         Usuario usuario = new Usuario(
                 rs.getString("nombre_completo"),

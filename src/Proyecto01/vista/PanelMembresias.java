@@ -91,12 +91,15 @@ public class PanelMembresias extends JPanel {
 
         add(panelCentral, BorderLayout.CENTER);
 
-        // Carga inicial de los planes disponibles
-        for (Plan plan : gestorPlanes.listarPlanes()) {
-            comboPlanes.addItem(plan);
-        }
+        // Carga inicial de los planes disponibles (consulta en hilo de fondo)
+        EjecutorBD.ejecutar(this, "Error al leer los planes", gestorPlanes::listarPlanes, planes -> {
+            for (Plan plan : planes) {
+                comboPlanes.addItem(plan);
+            }
+        });
 
-        gestorUsuarios.agregarListener(this::actualizarSocios);
+        // Los avisos pueden llegar desde hilos de fondo o de red: la interfaz se toca solo en el hilo de Swing
+        gestorUsuarios.agregarListener(() -> SwingUtilities.invokeLater(this::actualizarSocios));
         actualizarSocios();
 
         // Al seleccionar una membresía se muestran sus pagos
@@ -150,7 +153,11 @@ public class PanelMembresias extends JPanel {
         JButton botonMorosos = new JButton("Ver socios morosos");
         botonMorosos.addActionListener(e -> mostrarMorosos());
 
+        JButton botonIngresos = new JButton("Reporte de ingresos");
+        botonIngresos.addActionListener(e -> mostrarIngresosPorPlan());
+
         JPanel panelBotones = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        panelBotones.add(botonIngresos);
         panelBotones.add(botonRenovar);
         panelBotones.add(botonAsignar);
         panelBotones.add(botonMorosos);
@@ -203,12 +210,28 @@ public class PanelMembresias extends JPanel {
      * para mantener la lista al día.
      */
     public void actualizarSocios() {
-        comboSocios.removeAllItems();
-        for (Usuario usuario : gestorUsuarios.listarUsuarios()) {
-            comboSocios.addItem(usuario);
-        }
-        recargarMembresias();
-        mostrarPagosDeSeleccion();
+        // Se recuerda el socio elegido para conservar la selección tras recargar
+        Usuario elegido = (Usuario) comboSocios.getSelectedItem();
+        Integer numeroElegido = elegido == null ? null : elegido.getNumeroUsuario();
+
+        EjecutorBD.ejecutar(this, "Error al leer los datos", () -> new Object[]{
+                gestorUsuarios.listarUsuarios(), gestorMembresias.listarMembresias()
+        }, datos -> {
+            @SuppressWarnings("unchecked")
+            List<Usuario> usuarios = (List<Usuario>) datos[0];
+            @SuppressWarnings("unchecked")
+            List<Membresia> membresias = (List<Membresia>) datos[1];
+
+            comboSocios.removeAllItems();
+            for (Usuario usuario : usuarios) {
+                comboSocios.addItem(usuario);
+                if (numeroElegido != null && usuario.getNumeroUsuario() == numeroElegido) {
+                    comboSocios.setSelectedItem(usuario);
+                }
+            }
+            llenarTablaMembresias(membresias);
+            mostrarPagosDeSeleccion();
+        });
     }
 
     /**
@@ -230,15 +253,15 @@ public class PanelMembresias extends JPanel {
             return;
         }
 
-        // El gestor crea la membresía (o actualiza la existente) y cobra el plan
-        Membresia membresia = gestorMembresias.asignarPlanYCobrar(usuario, plan);
-        gestorUsuarios.sincronizarEstadoDePago(usuario);
-
-        etiquetaResultado.setText("Se asignó el plan " + plan.getNombre() + " a "
+        // El gestor crea la membresía (o actualiza la existente) y cobra el plan.
+        // Todo el acceso a MySQL va en un hilo de fondo; las tablas se recargan con el aviso del gestor.
+        EjecutorBD.ejecutar(this, "No se pudo asignar el plan", () -> {
+            Membresia membresia = gestorMembresias.asignarPlanYCobrar(usuario, plan);
+            gestorUsuarios.sincronizarEstadoDePago(usuario);
+            return membresia;
+        }, membresia -> etiquetaResultado.setText("Se asignó el plan " + plan.getNombre() + " a "
                 + usuario.getNombreCompleto() + ". Próximo vencimiento: "
-                + membresia.getFechaVencimiento().format(formato));
-
-        recargarMembresias();
+                + membresia.getFechaVencimiento().format(formato)));
     }
 
     /**
@@ -255,29 +278,22 @@ public class PanelMembresias extends JPanel {
             return;
         }
 
-        try {
+        // Si el socio no tiene membresía, el gestor lanza IllegalStateException y se muestra el aviso
+        EjecutorBD.ejecutar(this, "Sin membresía", () -> {
             gestorMembresias.registrarPago(usuario);
             gestorUsuarios.sincronizarEstadoDePago(usuario);
-            Membresia membresia = gestorMembresias.buscarMembresiaPorUsuario(usuario);
-
-            etiquetaResultado.setText("Pago registrado para " + usuario.getNombreCompleto()
-                    + ". Nuevo vencimiento: " + membresia.getFechaVencimiento().format(formato));
-
-            recargarMembresias();
-        } catch (IllegalStateException ex) {
-            // Se lanza cuando el socio no tiene membresía asignada
-            JOptionPane.showMessageDialog(this, ex.getMessage(),
-                    "Sin membresía", JOptionPane.WARNING_MESSAGE);
-        }
+            return gestorMembresias.buscarMembresiaPorUsuario(usuario);
+        }, membresia -> etiquetaResultado.setText("Pago registrado para " + usuario.getNombreCompleto()
+                + ". Nuevo vencimiento: " + membresia.getFechaVencimiento().format(formato)));
     }
 
     /**
      * Vuelve a llenar la tabla de membresías con todas las membresías que hay
      * registradas en el gestor.
      */
-    private void recargarMembresias() {
+    private void llenarTablaMembresias(List<Membresia> membresias) {
         modeloTablaMembresias.setRowCount(0);
-        for (Membresia membresia : gestorMembresias.listarMembresias()) {
+        for (Membresia membresia : membresias) {
             modeloTablaMembresias.addRow(new Object[]{
                     membresia.getUsuario().getNumeroUsuario(),
                     membresia.getUsuario().getNombreCompleto(),
@@ -301,22 +317,47 @@ public class PanelMembresias extends JPanel {
         }
 
         int numeroSocio = (Integer) modeloTablaMembresias.getValueAt(fila, 0);
-        Usuario usuario = gestorUsuarios.buscarUsuarioPorNumero(numeroSocio);
-        if (usuario == null) {
-            return;
-        }
+        EjecutorBD.ejecutar(this, "Error al leer los pagos", () -> {
+            Usuario usuario = gestorUsuarios.buscarUsuarioPorNumero(numeroSocio);
+            return usuario == null ? null : gestorMembresias.buscarMembresiaPorUsuario(usuario);
+        }, membresia -> {
+            // Si la selección cambió mientras se consultaba, se descarta el resultado viejo
+            if (membresia == null || tablaMembresias.getSelectedRow() != fila) {
+                return;
+            }
+            modeloTablaPagos.setRowCount(0);
+            for (Pago pago : membresia.getPagos()) {
+                modeloTablaPagos.addRow(new Object[]{
+                        pago.getFecha().format(formato),
+                        "₡" + pago.getMonto()
+                });
+            }
+        });
+    }
 
-        Membresia membresia = gestorMembresias.buscarMembresiaPorUsuario(usuario);
-        if (membresia == null) {
-            return;
-        }
-
-        for (Pago pago : membresia.getPagos()) {
-            modeloTablaPagos.addRow(new Object[]{
-                    pago.getFecha().format(formato),
-                    "₡" + pago.getMonto()
-            });
-        }
+    /**
+     * Muestra un diálogo con el reporte de ingresos acumulados por plan
+     * (cantidad de pagos y total cobrado), calculado en MySQL con GROUP BY.
+     */
+    private void mostrarIngresosPorPlan() {
+        EjecutorBD.ejecutar(this, "Error al calcular el reporte", gestorMembresias::listarIngresosPorPlan, filas -> {
+            DefaultTableModel modelo = new DefaultTableModel(
+                    new String[]{"Plan", "Pagos realizados", "Total cobrado"}, 0) {
+                @Override
+                public boolean isCellEditable(int row, int column) {
+                    return false;
+                }
+            };
+            double granTotal = 0;
+            for (Object[] fila : filas) {
+                modelo.addRow(new Object[]{fila[0], fila[1], "₡" + fila[2]});
+                granTotal += (Double) fila[2];
+            }
+            JScrollPane scroll = new JScrollPane(new JTable(modelo));
+            scroll.setPreferredSize(new Dimension(500, 180));
+            JOptionPane.showMessageDialog(this, scroll,
+                    "Ingresos por plan (total: ₡" + granTotal + ")", JOptionPane.INFORMATION_MESSAGE);
+        });
     }
 
     /**
@@ -324,17 +365,16 @@ public class PanelMembresias extends JPanel {
      * (morosos). Consulta la base de datos a traves de IGestorMembresias.
      */
     private void mostrarMorosos() {
-        List<Membresia> vencidas;
-        try {
-            vencidas = gestorMembresias.listarMembresiasVencidas();
-        } catch (IllegalStateException ex) {
-            JOptionPane.showMessageDialog(this,
-                    ex.getMessage(),
-                    "Error al consultar morosos",
-                    JOptionPane.ERROR_MESSAGE);
-            return;
-        }
+        EjecutorBD.ejecutar(this, "Error al consultar morosos",
+                gestorMembresias::listarMembresiasVencidas, this::mostrarDialogoMorosos);
+    }
 
+    /**
+     * Arma y muestra el diálogo con la tabla de socios morosos.
+     *
+     * @param vencidas membresías con fecha de vencimiento anterior a hoy
+     */
+    private void mostrarDialogoMorosos(List<Membresia> vencidas) {
         if (vencidas.isEmpty()) {
             JOptionPane.showMessageDialog(this,
                     "No hay socios con membresia vencida.",
