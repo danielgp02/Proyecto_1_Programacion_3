@@ -8,6 +8,7 @@ import java.sql.SQLException;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Servicio de socios. La persistencia vive en MySQL detrás de IUsuarioDao:
@@ -19,6 +20,8 @@ public class GestorUsuarios implements IGestorUsuarios {
     private final IGestorMembresias gestorMembresias;
     private final IUsuarioDao dao;
     private final List<Runnable> listeners;
+    // Avisos que solo se disparan por cambios hechos en esta instancia (ej. sincronización por red)
+    private final List<Runnable> listenersLocales;
     // Socios ya cargados: una sola instancia por socio, la misma que ve la membresía
     private final Repositorio<Usuario> cache;
 
@@ -31,12 +34,13 @@ public class GestorUsuarios implements IGestorUsuarios {
     public GestorUsuarios(IGestorMembresias gestorMembresias, IUsuarioDao dao) {
         this.gestorMembresias = gestorMembresias;
         this.dao = dao;
-        this.listeners = new ArrayList<>();
+        this.listeners = new CopyOnWriteArrayList<>();
+        this.listenersLocales = new CopyOnWriteArrayList<>();
         this.cache = new Repositorio<>();
     }
 
     @Override
-    public Usuario registrarUsuario(String nombreCompleto, int edad, String correoElectronico, int telefono,
+    public synchronized Usuario registrarUsuario(String nombreCompleto, int edad, String correoElectronico, int telefono,
                                     int numeroUsuario, int idUsuario, String contactoEmergencia,
                                     String condicionesMedicas) {
         if (nombreCompleto == null || nombreCompleto.trim().isEmpty()) {
@@ -64,7 +68,7 @@ public class GestorUsuarios implements IGestorUsuarios {
     }
 
     @Override
-    public void actualizarUsuario(int numeroOriginal, String nombreCompleto, int edad, String correoElectronico,
+    public synchronized void actualizarUsuario(int numeroOriginal, String nombreCompleto, int edad, String correoElectronico,
                                   int telefono, int numeroUsuario, int idUsuario, String contactoEmergencia,
                                   String condicionesMedicas) {
         Usuario existente = buscarUsuarioPorNumero(numeroOriginal);
@@ -98,10 +102,11 @@ public class GestorUsuarios implements IGestorUsuarios {
         } catch (SQLException e) {
             throw new IllegalStateException("No se pudo actualizar el socio: " + e.getMessage(), e);
         }
+        notificarCambios();
     }
 
     @Override
-    public void eliminarUsuario(Usuario usuario) {
+    public synchronized void eliminarUsuario(Usuario usuario) {
         gestorMembresias.eliminarMembresiaDeUsuario(usuario);
         try {
             if (!dao.eliminar(usuario.getNumeroUsuario())) {
@@ -116,12 +121,15 @@ public class GestorUsuarios implements IGestorUsuarios {
     }
 
     @Override
-    public List<Usuario> listarUsuarios() {
+    public synchronized List<Usuario> listarUsuarios() {
         try {
             List<Usuario> resultado = new ArrayList<>();
-            for (Usuario desdeBD : dao.listarTodos()) {
+            List<Usuario> desdeBase = dao.listarTodos();
+            for (Usuario desdeBD : desdeBase) {
                 resultado.add(enCache(desdeBD));
             }
+            // Quita del caché los socios que ya no existen (p. ej. eliminados desde otra instancia)
+            cache.obtenerTodos().removeIf(c -> desdeBase.stream().noneMatch(b -> b.getIdUsuario() == c.getIdUsuario()));
             return resultado;
         } catch (SQLException e) {
             throw new IllegalStateException("No se pudo leer la lista de socios de la base de datos: "
@@ -130,7 +138,7 @@ public class GestorUsuarios implements IGestorUsuarios {
     }
 
     @Override
-    public Usuario buscarUsuarioPorNumero(int numeroUsuario) {
+    public synchronized Usuario buscarUsuarioPorNumero(int numeroUsuario) {
         try {
             Usuario cacheado = cache.buscar(u -> u.getNumeroUsuario() == numeroUsuario);
             if (cacheado != null) {
@@ -145,7 +153,7 @@ public class GestorUsuarios implements IGestorUsuarios {
     }
 
     @Override
-    public void sincronizarEstadoDePago(Usuario usuario) {
+    public synchronized void sincronizarEstadoDePago(Usuario usuario) {
         if (usuario == null) {
             return;
         }
@@ -171,6 +179,14 @@ public class GestorUsuarios implements IGestorUsuarios {
     private Usuario enCache(Usuario desdeBD) {
         Usuario existente = cache.buscar(u -> u.getIdUsuario() == desdeBD.getIdUsuario());
         if (existente != null) {
+            // Se copian todos los campos por si otra instancia modificó al socio
+            existente.setNombreCompleto(desdeBD.getNombreCompleto());
+            existente.setEdad(desdeBD.getEdad());
+            existente.setCorreoElectronico(desdeBD.getCorreoElectronico());
+            existente.setTelefono(desdeBD.getTelefono());
+            existente.setNumeroSocio(desdeBD.getNumeroUsuario());
+            existente.setContactoEmergencia(desdeBD.getContactoEmergencia());
+            existente.setCondicionesMedicas(desdeBD.getCondicionesMedicas());
             existente.setPagoAlDia(desdeBD.isPagoAlDia());
             return existente;
         }
@@ -185,8 +201,26 @@ public class GestorUsuarios implements IGestorUsuarios {
         }
     }
 
-    private void notificarCambios() {
+    @Override
+    public void agregarListenerCambioLocal(Runnable listener) {
+        if (listener != null) {
+            listenersLocales.add(listener);
+        }
+    }
+
+    @Override
+    public void notificarCambioExterno() {
         for (Runnable listener : listeners) {
+            listener.run();
+        }
+    }
+
+    /**
+     * Avisa a las pantallas y a los oyentes de cambios locales que los socios cambiaron.
+     */
+    private void notificarCambios() {
+        notificarCambioExterno();
+        for (Runnable listener : listenersLocales) {
             listener.run();
         }
     }

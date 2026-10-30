@@ -32,5 +32,9 @@ public interface IGestorMembresias {
     //Retorna una lista con las membresias morosas
     List<Membresia> listarMembresiasVencidas();
 
+    //Calcula los ingresos acumulados por plan (reporte)
+    //Retorna filas {nombre del plan, cantidad de pagos, total cobrado}
+    List<Object[]> listarIngresosPorPlan();
+
 
 }

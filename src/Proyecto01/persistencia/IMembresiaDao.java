@@ -87,4 +87,13 @@ public interface IMembresiaDao {
      * @throws SQLException si falla la inserción
      */
     boolean insertarPago(int idMembresia, java.time.LocalDate fecha, double monto) throws SQLException;
+
+    /**
+     * Calcula los ingresos acumulados por cada plan (suma de los pagos de sus membresías).
+     *
+     * @return una fila por plan: {nombre del plan (String), cantidad de pagos (Long), total cobrado (Double)},
+     *         ordenadas de mayor a menor ingreso
+     * @throws SQLException si falla la consulta
+     */
+    List<Object[]> ingresosPorPlan() throws SQLException;
 }

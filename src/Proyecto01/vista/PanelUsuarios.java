@@ -190,7 +190,8 @@ public class PanelUsuarios extends JPanel {
 
         // Conecta los eventos de los botones y de la tabla
         configurarListeners();
-        gestorUsuarios.agregarListener(this::recargarTabla);
+        // Los avisos pueden llegar desde hilos de fondo o de red: la tabla se toca solo en el hilo de Swing
+        gestorUsuarios.agregarListener(() -> SwingUtilities.invokeLater(this::recargarTabla));
         recargarTabla();
     }
 
@@ -286,25 +287,24 @@ public class PanelUsuarios extends JPanel {
             return;
         }
 
-        try {
-            if (numeroSocioEnEdicion == null) {
+        // La escritura en MySQL corre en un hilo de fondo para no congelar la ventana.
+        // La tabla se recarga sola cuando el gestor avisa del cambio.
+        final Integer numeroOriginal = numeroSocioEnEdicion;
+        btnGuardar.setEnabled(false);
+        EjecutorBD.ejecutarSinResultado(this, "No se pudo guardar", () -> {
+            if (numeroOriginal == null) {
                 gestorUsuarios.registrarUsuario(nombre, edadInt, correo, telefonoInt,
                         numeroSocioInt, idUsuarioInt, contacto, condiciones);
             } else {
                 // Actualiza el mismo objeto: la membresía no pierde al socio.
-                gestorUsuarios.actualizarUsuario(numeroSocioEnEdicion, nombre, edadInt, correo,
+                gestorUsuarios.actualizarUsuario(numeroOriginal, nombre, edadInt, correo,
                         telefonoInt, numeroSocioInt, idUsuarioInt, contacto, condiciones);
             }
-        } catch (IllegalArgumentException | IllegalStateException ex) {
-            JOptionPane.showMessageDialog(this, ex.getMessage(),
-                    "No se pudo guardar", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        limpiarFormulario();
-        recargarTabla();
-        JOptionPane.showMessageDialog(this,
-                "Datos guardados correctamente: " + nombre);
+        }, () -> {
+            btnGuardar.setEnabled(true);
+            limpiarFormulario();
+            JOptionPane.showMessageDialog(this, "Datos guardados correctamente: " + nombre);
+        });
     }
 
     /**
@@ -388,17 +388,12 @@ public class PanelUsuarios extends JPanel {
 
         // Solo borra si el usuario pulso "Si"
         if (opcion == JOptionPane.YES_OPTION) {
-            try {
+            EjecutorBD.ejecutarSinResultado(this, "Error de base de datos", () -> {
                 Usuario socio = gestorUsuarios.buscarUsuarioPorNumero(numeroSocio);
                 if (socio != null) {
                     gestorUsuarios.eliminarUsuario(socio);
                 }
-                limpiarFormulario();
-                recargarTabla();
-            }catch (IllegalStateException ex) {
-                JOptionPane.showMessageDialog(this, ex.getMessage(),
-                        "Error de base de datos", JOptionPane.WARNING_MESSAGE);
-            }
+            }, this::limpiarFormulario);
         }
     }
 
@@ -409,19 +404,22 @@ public class PanelUsuarios extends JPanel {
      * definido en el modelo de la tabla.
      */
     private void recargarTabla() {
-        modeloTabla.setRowCount(0); // Limpia las filas anteriores
-        for (Usuario u : gestorUsuarios.listarUsuarios()) {
-            // Agrega una fila por cada socio registrado
-            modeloTabla.addRow(new Object[]{
-                    u.getNumeroUsuario(),
-                    u.getIdUsuario(),
-                    u.getNombreCompleto(),
-                    u.getEdad(),
-                    u.isPagoAlDia() ? "Sí" : "No",
-                    u.getContactoEmergencia(),
-                    u.getCondicionesMedicas()
-            });
-        }
+        // La consulta a MySQL se hace en un hilo de fondo; la tabla se llena en el hilo de Swing
+        EjecutorBD.ejecutar(this, "Error al leer los socios", gestorUsuarios::listarUsuarios, usuarios -> {
+            modeloTabla.setRowCount(0); // Limpia las filas anteriores
+            for (Usuario u : usuarios) {
+                // Agrega una fila por cada socio registrado
+                modeloTabla.addRow(new Object[]{
+                        u.getNumeroUsuario(),
+                        u.getIdUsuario(),
+                        u.getNombreCompleto(),
+                        u.getEdad(),
+                        u.isPagoAlDia() ? "Sí" : "No",
+                        u.getContactoEmergencia(),
+                        u.getCondicionesMedicas()
+                });
+            }
+        });
     }
 
     /**

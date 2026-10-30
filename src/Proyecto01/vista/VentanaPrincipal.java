@@ -1,7 +1,11 @@
 package Proyecto01.vista;
 
 
+import Proyecto01.modelo.Usuario;
+import Proyecto01.persistencia.MembresiaDaoJDBC;
+import Proyecto01.persistencia.PlanDaoJDBC;
 import Proyecto01.persistencia.UsuarioDaoJDBC;
+import Proyecto01.red.SincronizadorRed;
 import Proyecto01.servicio.ControlAcceso;
 import Proyecto01.servicio.GestorMembresias;
 import Proyecto01.servicio.GestorPlanes;
@@ -20,6 +24,9 @@ import java.awt.*;
  * <p>
  * La carga inicial de datos de prueba se ejecuta en un hilo separado
  * (SwingWorker) para no congelar la interfaz mientras consulta la base de datos.
+ * <p>
+ * También arranca la sincronización por sockets: cuando otra instancia de la
+ * aplicación cambia datos, esta ventana se entera y vuelve a leer MySQL.
  */
 public class VentanaPrincipal extends JFrame {
 
@@ -27,16 +34,22 @@ public class VentanaPrincipal extends JFrame {
     private final IGestorUsuarios gestorUsuarios;
     private final IGestorPlanes gestorPlanes;
     private final IControlAcceso controlAcceso;
+    private final SincronizadorRed sincronizador;
 
+    /**
+     * Construye la ventana: crea los DAOs JDBC, los servicios, las pestañas y
+     * arranca la carga inicial y la sincronización por red.
+     */
     public VentanaPrincipal() {
         super("Gimnasio - Sistema de Gestión");
         setSize(1280, 720);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
-        gestorMembresias = new GestorMembresias();
+        // Los DAOs se crean aquí y se inyectan: los servicios solo conocen las interfaces
+        gestorMembresias = new GestorMembresias(new MembresiaDaoJDBC());
         gestorUsuarios = new GestorUsuarios(gestorMembresias, new UsuarioDaoJDBC());
-        gestorPlanes = new GestorPlanes();
+        gestorPlanes = new GestorPlanes(new PlanDaoJDBC());
         controlAcceso = new ControlAcceso(gestorUsuarios, gestorMembresias);
 
         JTabbedPane pestanas = new JTabbedPane();
@@ -52,44 +65,48 @@ public class VentanaPrincipal extends JFrame {
 
         // Carga inicial de datos de prueba en hilo separado para no bloquear la GUI
         cargarDatosIniciales();
+
+        // Sincronización por sockets: un cambio local avisa a las otras instancias y
+        // un aviso remoto vuelve a leer la base (en el hilo de Swing las pantallas se refrescan solas)
+        sincronizador = new SincronizadorRed(
+                gestorUsuarios::notificarCambioExterno,
+                estado -> SwingUtilities.invokeLater(() -> setTitle("Gimnasio - Sistema de Gestión  [" + estado + "]")));
+        gestorUsuarios.agregarListenerCambioLocal(sincronizador::notificarCambio);
+        sincronizador.iniciar();
+    }
+
+    @Override
+    public void dispose() {
+        sincronizador.detener();
+        super.dispose();
     }
 
     /**
-     * Carga los datos de ejemplo (membresías de María y Lucía) en un hilo de fondo
-     * usando SwingWorker, de modo que la interfaz gráfica permanezca responsiva
-     * mientras se consultan y escriben datos en MySQL.
+     * Asegura que los socios de ejemplo (101 María y 103 Lucía) tengan su membresía,
+     * en un hilo de fondo para que la interfaz permanezca responsiva mientras se
+     * consulta MySQL. Solo crea la membresía si todavía no existe, así abrir la
+     * aplicación varias veces no duplica pagos.
      */
     private void cargarDatosIniciales() {
-        SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
-            @Override
-            protected Void doInBackground() throws Exception {
-                // Operaciones de base de datos (lentas) en hilo de fondo
-                gestorMembresias.asignarPlanYCobrar(
-                        gestorUsuarios.buscarUsuarioPorNumero(101),
-                        gestorPlanes.buscarPlanPorNombre("Mensual"));
-                gestorMembresias.asignarPlanYCobrar(
-                        gestorUsuarios.buscarUsuarioPorNumero(103),
-                        gestorPlanes.buscarPlanPorNombre("Anual"));
-                gestorUsuarios.sincronizarEstadoDePago(
-                        gestorUsuarios.buscarUsuarioPorNumero(101));
-                gestorUsuarios.sincronizarEstadoDePago(
-                        gestorUsuarios.buscarUsuarioPorNumero(103));
-                return null;
-            }
+        EjecutorBD.ejecutarSinResultado(this, "Error de inicialización", () -> {
+            asegurarMembresiaDeEjemplo(101, "Mensual");
+            asegurarMembresiaDeEjemplo(103, "Anual");
+        }, null);
+    }
 
-            @Override
-            protected void done() {
-                try {
-                    get(); // Propaga excepciones si ocurrieron en doInBackground
-                } catch (Exception e) {
-                    SwingUtilities.invokeLater(() ->
-                            JOptionPane.showMessageDialog(VentanaPrincipal.this,
-                                    "No se pudieron cargar los datos iniciales: " + e.getMessage(),
-                                    "Error de inicialización", JOptionPane.ERROR_MESSAGE));
-                }
-            }
-        };
-        worker.execute();
+    /**
+     * Crea la membresía de un socio de ejemplo si el socio existe y aún no tiene una.
+     *
+     * @param numeroSocio número del socio de ejemplo
+     * @param nombrePlan nombre del plan a asignar (Mensual, Anual o VIP)
+     */
+    private void asegurarMembresiaDeEjemplo(int numeroSocio, String nombrePlan) {
+        Usuario socio = gestorUsuarios.buscarUsuarioPorNumero(numeroSocio);
+        if (socio == null || gestorMembresias.buscarMembresiaPorUsuario(socio) != null) {
+            return;
+        }
+        gestorMembresias.asignarPlanYCobrar(socio, gestorPlanes.buscarPlanPorNombre(nombrePlan));
+        gestorUsuarios.sincronizarEstadoDePago(socio);
     }
 
     public IGestorMembresias getGestorMembresias() {

@@ -80,4 +80,18 @@ public interface IGestorUsuarios {
      * @param listener acción a ejecutar tras un cambio
      */
     void agregarListener(Runnable listener);
+
+    /**
+     * Registra un aviso que se ejecuta solo cuando el cambio se originó en esta
+     * instancia de la aplicación (no cuando llega desde otra por la red).
+     *
+     * @param listener acción a ejecutar tras un cambio local
+     */
+    void agregarListenerCambioLocal(Runnable listener);
+
+    /**
+     * Avisa a las pantallas que los datos cambiaron fuera de esta instancia
+     * (por ejemplo, otra copia de la aplicación) para que se vuelvan a leer de la base.
+     */
+    void notificarCambioExterno();
 }
